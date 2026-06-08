@@ -2,6 +2,8 @@
 
 Production-ready infrastructure automation for a SaaS-based School Management System.
 
+---
+
 ## Overview
 
 This repository contains Infrastructure as Code (IaC), deployment automation, observability configuration, and operational tooling for a cloud-native education platform.
@@ -10,16 +12,14 @@ This repository contains Infrastructure as Code (IaC), deployment automation, ob
 
 * Backend: Go
 * Frontend: Next.js
-* Database: PostgreSQL
+* Database: PostgreSQL (self-hosted on EC2)
 * Containerization: Docker
 * Infrastructure: Terraform
 * Cloud Provider: AWS
-* Orchestration: Kubernetes (EKS)
 * CI/CD: GitHub Actions
 * Monitoring: Prometheus + Grafana
 * Logging: Loki
 * Tracing: OpenTelemetry
-* Secrets Management: AWS Secrets Manager
 
 ---
 
@@ -35,13 +35,11 @@ Route53
 Application Load Balancer
   │
   ▼
-Kubernetes (EKS)
+EC2 (Docker Host)
  ├── Frontend (Next.js)
  ├── Backend API (Go)
+ ├── PostgreSQL Database
  └── Background Workers
-  │
-  ▼
-PostgreSQL (RDS)
 ```
 
 ---
@@ -53,9 +51,9 @@ infra/
 ├── terraform/
 │   ├── modules/
 │   │   ├── vpc/
-│   │   ├── eks/
-│   │   ├── rds/
+│   │   ├── ec2/
 │   │   ├── alb/
+│   │   ├── security-groups/
 │   │   └── monitoring/
 │   │
 │   └── environments/
@@ -63,12 +61,11 @@ infra/
 │       ├── staging/
 │       └── prod/
 │
-├── kubernetes/
+├── docker/
 │   ├── backend/
 │   ├── frontend/
-│   ├── ingress/
-│   ├── monitoring/
-│   └── logging/
+│   ├── postgres/
+│   └── docker-compose.yml
 │
 ├── github-actions/
 │
@@ -93,21 +90,19 @@ infra/
 ### Goals
 
 * Isolated workloads
-* Secure database access
-* Production-ready network segmentation
+* Controlled inbound access
+* Secure database exposure via private networking
 
 ---
 
-## Kubernetes Cluster
+## Compute Layer (EC2)
 
 ### Features
 
-* Managed EKS Cluster
-* Node Groups
-* Horizontal Pod Autoscaling
-* Rolling Updates
-* Health Checks
-* Resource Limits
+* EC2-based application hosting
+* Docker runtime
+* Docker Compose orchestration
+* Rolling updates via CI/CD
 
 ### Workloads
 
@@ -115,20 +110,26 @@ infra/
 | -------- | ------------------- |
 | frontend | Next.js Application |
 | api      | Go REST API         |
-| worker   | Background Jobs     |
+| postgres | PostgreSQL Database |
 
 ---
 
 ## Database
 
-### PostgreSQL (RDS)
+### PostgreSQL (Self-Hosted on EC2)
 
 Features:
 
-* Automated Backups
-* Point-In-Time Recovery
-* Multi-AZ Deployment
-* Monitoring Enabled
+* Persistent Docker volume storage
+* Automated backups via cron jobs
+* Manual restore procedures
+* Internal network access only
+
+### Trade-offs:
+
+* Lower cost
+* Higher operational responsibility
+* No managed HA or PITR by default
 
 ---
 
@@ -147,14 +148,14 @@ GitHub Actions
         ├── Build Docker Image
         ├── Security Scan
         ├── Push To Registry
-        └── Deploy To Kubernetes
+        └── SSH Deploy to EC2 (Docker Compose)
 ```
 
 ### Objectives
 
-* Automated Deployments
-* Consistent Releases
-* Fast Rollbacks
+* Automated deployments
+* Consistent environment parity
+* Fast rollback via previous image tags
 
 ---
 
@@ -166,7 +167,7 @@ Collected Metrics:
 
 * CPU Usage
 * Memory Usage
-* Pod Health
+* Container Health
 * Request Count
 * Request Latency
 * Error Rate
@@ -182,10 +183,10 @@ Collected Metrics:
 
 #### Infrastructure Dashboard
 
-* Node Health
-* CPU
+* EC2 CPU
 * Memory
-* Storage
+* Disk usage
+* Network traffic
 
 ---
 
@@ -201,7 +202,7 @@ Components:
 Log Types:
 
 * Application Logs
-* Audit Logs
+* System Logs
 * Access Logs
 * Error Logs
 
@@ -228,9 +229,9 @@ PostgreSQL
 
 Benefits:
 
-* Root Cause Analysis
-* Performance Investigation
-* Request Lifecycle Visibility
+* End-to-end request visibility
+* Latency bottleneck identification
+* Faster incident debugging
 
 ---
 
@@ -240,25 +241,26 @@ Benefits:
 
 Managed using:
 
-* AWS Secrets Manager
+* GitHub Actions Secrets
+* EC2 environment variables (.env files)
 
 Examples:
 
-* Database Credentials
-* API Keys
-* JWT Secrets
+* Database credentials
+* JWT secrets
+* API keys
 
 ### Container Security
 
 * Non-root containers
-* Image vulnerability scanning
 * Minimal base images
+* Image vulnerability scanning
 
 ### IAM
 
-* Least Privilege Access
-* Role-Based Permissions
-* Environment Isolation
+* Least privilege access
+* Separate roles for CI/CD and infrastructure
+* Environment isolation via Terraform
 
 ---
 
@@ -268,19 +270,19 @@ Examples:
 
 Database:
 
-* Daily Backups
-* Point-In-Time Recovery
+* Daily PostgreSQL dumps via cron job
+* Manual restore procedures documented
 
 Storage:
 
-* Versioned S3 Buckets
+* Versioned S3 buckets (if used)
 
 ### Recovery Objectives
 
-| Metric | Target     |
-| ------ | ---------- |
-| RPO    | 15 Minutes |
-| RTO    | 1 Hour     |
+| Metric | Target  |
+| ------ | ------- |
+| RPO    | 1 hour  |
+| RTO    | 2 hours |
 
 ---
 
@@ -288,24 +290,19 @@ Storage:
 
 ### Development
 
-Purpose:
-
-* Feature Development
-* Local Testing
+* Local Docker Compose setup
+* Feature development and testing
 
 ### Staging
 
-Purpose:
-
-* Pre-production Validation
-* Performance Testing
+* EC2-based staging environment
+* Pre-production validation
 
 ### Production
 
-Purpose:
-
-* Customer Workloads
-* High Availability
+* Single or multi-instance EC2 setup
+* Load balancer fronted
+* Production traffic handling
 
 ---
 
@@ -313,39 +310,35 @@ Purpose:
 
 This infrastructure supports:
 
-* Automated provisioning
-* Automated deployments
+* Infrastructure provisioning via Terraform
+* Automated CI/CD deployments
 * Monitoring and alerting
+* Log aggregation and debugging
+* Backup and restore procedures
 * Capacity planning
-* Incident response
-* Backup verification
-* Security compliance
 
 ---
 
 ## Future Improvements
 
+* ECS migration (optional scaling improvement)
 * GitOps using ArgoCD
-* Service Mesh
-* Multi-Region Disaster Recovery
-* Cost Optimization Dashboards
-* Automated Chaos Testing
+* Multi-node database setup
+* Automated scaling policies
+* Cost optimization dashboards
+* Service mesh adoption (if needed)
 
 ---
 
 ## Skills Demonstrated
 
-* Go Application Operations
-* AWS Cloud Infrastructure
-* Terraform
-* Docker
-* Kubernetes
-* PostgreSQL Administration
-* CI/CD Engineering
-* Monitoring and Alerting
-* Distributed Tracing
-* Infrastructure Automation
-* Site Reliability Practices
-* Production Operations
-* Incident Management
-* Cloud Security
+* Go backend operations in production
+* AWS EC2-based infrastructure design
+* Terraform infrastructure automation
+* Docker and Docker Compose orchestration
+* PostgreSQL self-managed operations
+* CI/CD with GitHub Actions
+* Observability with Prometheus + Grafana
+* Logging and tracing systems
+* Production incident handling
+* Cloud security fundamentals
